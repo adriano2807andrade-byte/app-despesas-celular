@@ -11,6 +11,47 @@ st.set_page_config(
     layout="centered"
 )
 
+# ==========================================
+# SISTEMA DE AUTENTICAÇÃO / LOGIN
+# ==========================================
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if "usuario_atual" not in st.session_state:
+    st.session_state["usuario_atual"] = None
+
+def realizar_login(usuario, senha):
+    try:
+        usuarios_cadastrados = st.secrets["users"]
+        user_clean = usuario.strip().lower()
+        
+        if user_clean in usuarios_cadastrados and usuarios_cadastrados[user_clean] == senha:
+            st.session_state["logged_in"] = True
+            st.session_state["usuario_atual"] = "Adriano" if user_clean == "adriano" else "Thayna"
+            st.success("Login realizado com sucesso!")
+            st.rerun()
+        else:
+            st.error("Usuário ou senha incorretos.")
+    except Exception as e:
+        st.error("Erro ao verificar credenciais nos Secrets.")
+
+if not st.session_state["logged_in"]:
+    st.title("🔐 Acesso Restrito")
+    st.caption("Controle Financeiro APA")
+    
+    with st.form("form_login"):
+        user_input = st.selectbox("Selecione o Usuário", ["adriano", "thayna"])
+        senha_input = st.text_input("Senha", type="password")
+        btn_login = st.form_submit_button("Entrar", use_container_width=True)
+        
+        if btn_login:
+            realizar_login(user_input, senha_input)
+            
+    st.stop()  # Interrompe a execução do restante do script se não estiver logado
+
+# ==========================================
+# CÓDIGO DA APLICAÇÃO (SÓ EXECUTA APÓS LOGIN)
+# ==========================================
+
 MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
          "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
@@ -44,7 +85,6 @@ except Exception as e:
     st.error(f"Erro ao conectar com a planilha: {e}")
     st.stop()
 
-# Helper: Converte valores monetários
 def converter_valor(val_str):
     if not val_str:
         return 0.0
@@ -54,7 +94,6 @@ def converter_valor(val_str):
     except:
         return 0.0
 
-# Helper: Interpreta parcelas em formato Texto/Data
 def ler_parcela(parc_str):
     if not parc_str:
         return None
@@ -67,7 +106,6 @@ def ler_parcela(parc_str):
             return atual, total
     return None
 
-# Helper: Retorna abas mensais ordenadas
 def obter_abas_mensais(planilha):
     worksheets = planilha.worksheets()
     abas_mensais = []
@@ -79,6 +117,16 @@ def obter_abas_mensais(planilha):
             abas_mensais.append((ano * 12 + idx_m, w))
     abas_mensais.sort(key=lambda x: x[0])
     return [w for _, w in abas_mensais]
+
+# --- CABEÇALHO DO USUÁRIO ---
+col_user1, col_user2 = st.columns([3, 1])
+with col_user1:
+    st.caption(f"👤 Logado como: **{st.session_state['usuario_atual']}** (Master)")
+with col_user2:
+    if st.button("Sair", use_container_width=True):
+        st.session_state["logged_in"] = False
+        st.session_state["usuario_atual"] = None
+        st.rerun()
 
 # --- NAVEGAÇÃO MOBILE ---
 aba_selecionada = st.radio(
@@ -95,6 +143,9 @@ st.divider()
 if aba_selecionada == "➕ Lançar":
     st.header("💸 Novo Lançamento")
     
+    # Pré-seleciona "Eu" para Adriano e "Thayna" para Thayna
+    idx_colab_padrao = 0 if st.session_state["usuario_atual"] == "Adriano" else 1
+    
     with st.form("form_despesas", clear_on_submit=True):
         data = st.date_input("Data", value=datetime.today())
         descricao = st.text_input("Descrição", placeholder="Ex: Mercado Tauste, Gasolina Zontes")
@@ -110,7 +161,7 @@ if aba_selecionada == "➕ Lançar":
         with c3:
             status = st.selectbox("Status", STATUS_LIST)
         with c4:
-            colaborador = st.selectbox("Colaborador", COLABORADORES)
+            colaborador = st.selectbox("Colaborador", COLABORADORES, index=idx_colab_padrao)
             
         parcela = st.text_input("Parcelas", value="-", placeholder="Ex: 01/03 ou -")
         obs = st.text_input("Observações (opcional)", value="")
@@ -192,7 +243,7 @@ elif aba_selecionada == "🎯 Planejamento":
         btn_simular = st.form_submit_button("Analisar Compra", use_container_width=True)
         
         if btn_simular and valor_obj > 0:
-            sobra_ref = 3000.0  # Sobra média estimada
+            sobra_ref = 3000.0
             
             if valor_obj <= sobra_ref * 0.35:
                 st.success(f"✅ **PODE COMPRAR À VISTA** — representa {int((valor_obj/sobra_ref)*100)}% da sua sobra estimada.")
@@ -221,7 +272,7 @@ elif aba_selecionada == "📊 Dashboard":
     if dash_sheet:
         dados_dash = dash_sheet.get_all_values()
         if len(dados_dash) >= 6:
-            colunas = dados_dash[1][1:]  # Meses Jan-Dez
+            colunas = dados_dash[1][1:]
             pagos = [converter_valor(v) for v in dados_dash[2][1:]]
             recebidos = [converter_valor(v) for v in dados_dash[3][1:]]
             saldos = [converter_valor(v) for v in dados_dash[5][1:]]
@@ -298,7 +349,6 @@ elif aba_selecionada == "⚙️ Automações":
     st.header("⚙️ Ações da Planilha")
     st.write("Execute aqui as automações equivalentes ao menu da sua planilha do Google Sheets:")
     
-    # BOTÃO 1: Criar Próxima Aba Mensal
     if st.button("📋 Criar Próxima Aba Mensal", use_container_width=True):
         try:
             abas_m = obter_abas_mensais(planilha)
@@ -318,7 +368,6 @@ elif aba_selecionada == "⚙️ Automações":
                     planilha.worksheet(nome_proximo)
                     st.warning(f"A aba `{nome_proximo}` já existe!")
                 except:
-                    # Lê parcelas e despesas fixas para transportar
                     dados = ultima_aba.get_all_values()
                     linhas_novas = []
                     
@@ -352,7 +401,6 @@ elif aba_selecionada == "⚙️ Automações":
                                     linhas_novas.append([hoje_str, val, desc, nova_parc, orig, cat, novo_sta, obs, colab])
                                     
                     nova_w = planilha.duplicate_sheet(ultima_aba.id, new_sheet_name=nome_proximo)
-                    # Limpa os dados antigos e insere os novos
                     nova_w.clear_contents()
                     nova_w.append_row([f"💳 CONTROLE FINANCEIRO — {nome_proximo.replace('_', ' ').upper()}"])
                     nova_w.append_row(["DATA", "VALOR", "DESCRIÇÃO", "PARC.", "ORIGEM", "CATEGORIA", "STATUS", "OBS", "COLABORADOR"])
